@@ -1,2 +1,4 @@
 helix-importer-ui
 *.min.js
+# Vendored from jazhou-adobe/ew-extensions (`npm run package:extension`); linted in that repo.
+apps/
