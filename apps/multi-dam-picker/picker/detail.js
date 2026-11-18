@@ -63,9 +63,12 @@ export function createDetail({ asset, actions, onClose }) {
   }
 
   (asset.warnings || []).forEach((w) => root.append(el('p', w, { class: 'warning', role: 'note' })));
-  const ok = asset.insertable?.ok === true;
+  // Never trust the flag alone: an image needs a displayable https rendition, any other asset an https link.
+  const usable = isImage ? renditions.some((r) => safeHttpsUrl(r.url)) : Boolean(safeHttpsUrl(asset.linkUrl));
+  const ok = asset.insertable?.ok === true && usable;
   if (!ok) {
-    const reason = asset.insertable?.reason || 'This asset cannot be inserted.';
+    const reason = asset.insertable?.ok === true
+      ? 'This asset has no usable web address.' : asset.insertable?.reason || 'This asset cannot be inserted.';
     root.append(el('p', reason, { class: 'warning', role: 'note' }));
   }
 

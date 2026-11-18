@@ -1,7 +1,7 @@
 {
   "source": "https://github.com/jazhou-adobe/ew-extensions",
   "path": "apps/multi-dam-picker",
-  "commit": "9e7f97415675d4aee8c98038fad72d7c9747e5ee",
+  "commit": "1962c14d8dfc7df2526316698ba2b159db23a3fc",
   "files": [
     "config.js",
     "multi-dam-picker-render.js",
@@ -10,6 +10,7 @@
     "multi-dam-picker.js",
     "picker/api.js",
     "picker/browse.js",
+    "picker/connect.js",
     "picker/detail.js",
     "picker/dom.js",
     "picker/insert.js"

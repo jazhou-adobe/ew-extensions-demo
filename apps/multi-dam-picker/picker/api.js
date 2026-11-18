@@ -1,5 +1,6 @@
 /**
- * Worker API client. Every call carries `Authorization: Bearer <token>`; nothing here logs or returns the token.
+ * Worker API client (`get` and `post`; neither sends a body). Every call carries `Authorization: Bearer <token>`;
+ * nothing here logs or returns the token.
  * Resolves to one of:
  *   { kind: 'ok', data }
  *   { kind: 'error', status, code, retryAfter? }   the worker answered with an error
@@ -9,7 +10,7 @@
 export function createClient({
   fetchImpl, base, token, timers, timeoutMs = 20000,
 }) {
-  async function get(path, { signal } = {}) {
+  async function request(method, path, { signal } = {}) {
     const controller = new AbortController();
     let timedOut = false;
     const onAbort = () => controller.abort();
@@ -23,6 +24,7 @@ export function createClient({
     }, timeoutMs);
     try {
       const res = await fetchImpl(`${base}${path}`, {
+        method,
         headers: { authorization: `Bearer ${token}` },
         signal: controller.signal,
       });
@@ -50,5 +52,16 @@ export function createClient({
       signal?.removeEventListener('abort', onAbort);
     }
   }
-  return { get };
+  return {
+    get: (path, options) => request('GET', path, options),
+    post: (path, options) => request('POST', path, options),
+  };
 }
+
+const AUTH_CODES = {
+  provider_reauth_required: 'reauth_required',
+  provider_not_connected: 'not_connected',
+};
+
+/** The connection state an in-band worker error asks for (`provider_reauth_required`, `provider_not_connected`). */
+export const authLostState = (result) => (result?.kind === 'error' ? AUTH_CODES[result.code] : undefined);

@@ -1,4 +1,5 @@
 import { el, placeholderLabel, safeImageUrl } from './dom.js';
+import { authLostState } from './api.js';
 
 const PAGE_SIZE = 24;
 const TYPE_LABELS = {
@@ -50,7 +51,7 @@ function thumbnail(item) {
  * drive the filter and sort options. Searching is debounced; a newer search always wins over an older one.
  */
 export function createBrowser({
-  provider, client, timers, debounceMs, workingMs, onSelect,
+  provider, client, timers, debounceMs, workingMs, onSelect, onAuthLost,
 }) {
   const caps = provider.capabilities;
   const root = el('section', undefined, { class: 'browser', 'aria-label': `${provider.label} assets` });
@@ -144,6 +145,11 @@ export function createBrowser({
     if (seq !== state.seq || result.kind === 'aborted') return;
     root.removeAttribute('aria-busy');
     more.disabled = false;
+    // The connection ended in between (revoked, disconnected elsewhere): the owner of this view shows Connect again.
+    if (onAuthLost && authLostState(result)) {
+      onAuthLost(authLostState(result));
+      return;
+    }
     if (result.kind !== 'ok') {
       setStatus(describeFailure(result, provider.label), { canRetry: result.code !== 'rate_limited' });
       if (!append) {

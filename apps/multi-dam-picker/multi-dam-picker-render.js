@@ -6,8 +6,9 @@
  * Everything is rendered with DOM APIs; the token is never rendered or logged.
  */
 import { workerFor } from './config.js';
-import { createClient } from './picker/api.js';
+import { authLostState, createClient } from './picker/api.js';
 import { createBrowser, describeFailure, MESSAGES } from './picker/browse.js';
+import { createConnectPanel } from './picker/connect.js';
 import { createDetail } from './picker/detail.js';
 import { el } from './picker/dom.js';
 
@@ -48,22 +49,42 @@ function message(text, { role = 'status' } = {}) {
 
 /** Provider area: optional source switcher plus the browser and the detail pane of the selected provider. */
 function mountProviders(root, providers, {
-  client, actions, timers, debounceMs, workingMs,
+  client, actions, timers, debounceMs, workingMs, openWindow, workerOrigin,
 }) {
   const body = el('div', undefined, { class: 'body' });
   let browser;
+  let panel;
   let current;
+  // The latest connection state of each provider (it changes without the provider list being fetched again).
+  const connections = new Map(providers.map((p) => [p.id, p.connection]));
+
+  /** The connection ended (revoked, disconnected elsewhere): show Connect or Reconnect and clear the results. */
+  function authLost(provider, state) {
+    if (current !== provider) {
+      // The author switched to another source meanwhile: remember it for when they come back.
+      connections.set(provider.id, { state, account: connections.get(provider.id)?.account });
+      return;
+    }
+    panel?.setState(state, connections.get(provider.id)?.account);
+  }
 
   function openDetail(host, item, button) {
+    const provider = current;
     host.replaceChildren(message(MESSAGES.loading));
-    client.get(`/dam/${current.id}/assets/${encodeURIComponent(item.id)}`).then((result) => {
+    client.get(`/dam/${provider.id}/assets/${encodeURIComponent(item.id)}`).then((result) => {
+      const lost = authLostState(result);
+      if (lost) {
+        host.replaceChildren();
+        authLost(provider, lost);
+        return;
+      }
       if (result.kind !== 'ok' || !result.data?.asset) {
         const back = el('button', 'Back to results', { type: 'button' });
         back.addEventListener('click', () => {
           host.replaceChildren();
           button.focus();
         });
-        host.replaceChildren(message(describeFailure(result, current.label)), back);
+        host.replaceChildren(message(describeFailure(result, provider.label)), back);
         return;
       }
       const detail = createDetail({
@@ -79,20 +100,56 @@ function mountProviders(root, providers, {
     });
   }
 
+  /** The grid and detail pane of a provider that is connected (or needs no connection). */
+  function mountBrowser(provider, host) {
+    const detailHost = el('div', undefined, { class: 'detail-host' });
+    browser = createBrowser({
+      provider,
+      client,
+      timers,
+      debounceMs,
+      workingMs,
+      onSelect: (item, button) => openDetail(detailHost, item, button),
+      onAuthLost: (state) => authLost(provider, state),
+    });
+    host.replaceChildren(browser.element, detailHost);
+  }
+
   function select(provider) {
     browser?.destroy();
+    browser = undefined;
+    panel?.destroy();
+    panel = undefined;
     current = provider;
     setTitle(root, `${provider.label} ${GENERIC_TITLE}`);
     body.replaceChildren();
-    if (provider.connection?.state !== 'connected') {
-      body.append(message(`${provider.label} is not available: it is not connected.`));
+    if (provider.credentialKind === 'user-oauth') {
+      // Each author connects their own account: the panel owns the connection, the browser appears once connected.
+      const area = el('div', undefined, { class: 'browse-area' });
+      panel = createConnectPanel({
+        provider,
+        connection: connections.get(provider.id),
+        client,
+        timers,
+        workerOrigin,
+        openWindow,
+        onChange: (state, account) => {
+          connections.set(provider.id, { state, account });
+          browser?.destroy();
+          browser = undefined;
+          if (state === 'connected') mountBrowser(provider, area);
+          else area.replaceChildren();
+        },
+      });
+      body.append(panel.element, area);
+      if (connections.get(provider.id)?.state === 'connected') mountBrowser(provider, area);
       return;
     }
-    const detailHost = el('div', undefined, { class: 'detail-host' });
-    browser = createBrowser({
-      provider, client, timers, debounceMs, workingMs, onSelect: (item, button) => openDetail(detailHost, item, button),
-    });
-    body.append(browser.element, detailHost);
+    if (connections.get(provider.id)?.state !== 'connected') {
+      body.append(message(`${provider.label} is not available right now.`));
+      return;
+    }
+    mountBrowser(provider, body);
   }
 
   const nodes = [];
@@ -139,6 +196,7 @@ export async function mountPicker(root, sdkPromise, {
   debounceMs = DEBOUNCE_MS,
   workingMs = WORKING_MS,
   workerTimeoutMs = WORKER_TIMEOUT_MS,
+  openWindow = (...args) => window.open(...args),
 } = {}) {
   show(root, message('Waiting for Experience Workspace…'));
   let timer;
@@ -164,6 +222,12 @@ export async function mountPicker(root, sdkPromise, {
     fetchImpl, base: worker.base, token: sdk.token, timers, timeoutMs: workerTimeoutMs,
   });
   await loadProviders(root, {
-    client, actions: sdk.actions, timers, debounceMs, workingMs,
+    client,
+    actions: sdk.actions,
+    timers,
+    debounceMs,
+    workingMs,
+    openWindow,
+    workerOrigin: new URL(worker.base).origin,
   });
 }

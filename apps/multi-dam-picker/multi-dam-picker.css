@@ -190,3 +190,26 @@ button:disabled {
 .insert {
   align-self: flex-start;
 }
+
+.connect {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  margin: 0 0 12px;
+}
+
+.connect-status {
+  margin: 0;
+}
+
+.connect-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.connect button {
+  min-height: 32px;
+  font: inherit;
+}
