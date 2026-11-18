@@ -1,5 +1,5 @@
 /**
- * Multi-DAM Picker: render and logic entry (no side effects at import time).
+ * Asset picker (Multi-DAM Picker extension): render and logic entry (no side effects at import time).
  *
  * Flow: await the SDK -> list providers from the worker -> browse the chosen provider -> open an asset -> insert.
  * The worker is chosen from the page hostname (config.js); every call carries the SDK's IMS token as a bearer token.
@@ -25,9 +25,21 @@ function realTimers() {
   };
 }
 
-/** Everything under the page heading is replaced by `nodes`. */
+/** Heading before a source is known; with a source it reads "<provider label> Asset Picker". */
+const GENERIC_TITLE = 'Asset Picker';
+
+/** Everything under the page heading is replaced by `nodes`; the heading itself is kept. */
 function show(root, ...nodes) {
-  root.replaceChildren(el('h1', 'Multi-DAM Picker', { class: 'title' }), ...nodes);
+  const heading = root.querySelector(':scope > h1.title') || el('h1', GENERIC_TITLE, { class: 'title' });
+  root.replaceChildren(heading, ...nodes);
+}
+
+/** Names the picker after the selected source, in the heading and the page title. */
+function setTitle(root, text) {
+  const heading = root.querySelector(':scope > h1.title');
+  if (heading) heading.textContent = text;
+  const doc = root.ownerDocument;
+  if (doc) doc.title = text;
 }
 
 function message(text, { role = 'status' } = {}) {
@@ -70,6 +82,7 @@ function mountProviders(root, providers, {
   function select(provider) {
     browser?.destroy();
     current = provider;
+    setTitle(root, `${provider.label} ${GENERIC_TITLE}`);
     body.replaceChildren();
     if (provider.connection?.state !== 'connected') {
       body.append(message(`${provider.label} is not available: it is not connected.`));
