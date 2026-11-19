@@ -4,6 +4,10 @@
  * Flow: await the SDK -> list providers from the worker -> browse the chosen provider -> open an asset -> insert.
  * The worker is chosen from the page hostname (config.js); every call carries the SDK's IMS token as a bearer token.
  * Everything is rendered with DOM APIs; the token is never rendered or logged.
+ *
+ * One page, several library rows: a `?source=<provider id>` parameter on the row's path pins the picker to that one
+ * source (no source dropdown). Without it, every configured source is offered. The title authors see is the library
+ * row's title (EW shows it on the dialog), so the page renders no heading of its own.
  */
 import { workerFor } from './config.js';
 import { authLostState, createClient } from './picker/api.js';
@@ -26,21 +30,22 @@ function realTimers() {
   };
 }
 
-/** Heading before a source is known; with a source it reads "<provider label> Asset Picker". */
-const GENERIC_TITLE = 'Asset Picker';
-
-/** Everything under the page heading is replaced by `nodes`; the heading itself is kept. */
+/** Everything in the picker is replaced by `nodes`. */
 function show(root, ...nodes) {
-  const heading = root.querySelector(':scope > h1.title') || el('h1', GENERIC_TITLE, { class: 'title' });
-  root.replaceChildren(heading, ...nodes);
+  root.replaceChildren(...nodes);
 }
 
-/** Names the picker after the selected source, in the heading and the page title. */
-function setTitle(root, text) {
-  const heading = root.querySelector(':scope > h1.title');
-  if (heading) heading.textContent = text;
-  const doc = root.ownerDocument;
-  if (doc) doc.title = text;
+const SOURCE_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+/**
+ * The source pinned by the page URL (`?source=<provider id>`), lower-cased, or `undefined` when none is set.
+ * An invalid value is returned as `null` so it reports "not configured" instead of silently showing every source.
+ */
+export function pinnedSource(search) {
+  const raw = new URLSearchParams(search).get('source');
+  if (raw === null || raw.trim() === '') return undefined;
+  const id = raw.trim().toLowerCase();
+  return SOURCE_ID.test(id) ? id : null;
 }
 
 function message(text, { role = 'status' } = {}) {
@@ -100,7 +105,7 @@ function mountProviders(root, providers, {
     });
   }
 
-  /** The grid and detail pane of a provider that is connected (or needs no connection). */
+  /** The grid and detail pane of a provider that is connected (or needs no connection), side by side when wide. */
   function mountBrowser(provider, host) {
     const detailHost = el('div', undefined, { class: 'detail-host' });
     browser = createBrowser({
@@ -112,7 +117,9 @@ function mountProviders(root, providers, {
       onSelect: (item, button) => openDetail(detailHost, item, button),
       onAuthLost: (state) => authLost(provider, state),
     });
-    host.replaceChildren(browser.element, detailHost);
+    const results = el('div', undefined, { class: 'results' });
+    results.append(browser.element, detailHost);
+    host.replaceChildren(results);
   }
 
   function select(provider) {
@@ -121,7 +128,6 @@ function mountProviders(root, providers, {
     panel?.destroy();
     panel = undefined;
     current = provider;
-    setTitle(root, `${provider.label} ${GENERIC_TITLE}`);
     body.replaceChildren();
     if (provider.credentialKind === 'user-oauth') {
       // Each author connects their own account: the panel owns the connection, the browser appears once connected.
@@ -166,7 +172,7 @@ function mountProviders(root, providers, {
 }
 
 async function loadProviders(root, options) {
-  const { client } = options;
+  const { client, source } = options;
   show(root, message(MESSAGES.loading));
   const workingTimer = options.timers.setTimeout(() => show(root, message(MESSAGES.working)), options.workingMs);
   const result = await client.get('/dam/providers');
@@ -177,7 +183,15 @@ async function loadProviders(root, options) {
     show(root, message(describeFailure(result.kind === 'ok' ? { kind: 'unavailable' } : result, 'The picker')), retry);
     return;
   }
-  const { providers } = result.data;
+  let { providers } = result.data;
+  if (source !== undefined) {
+    providers = providers.filter((p) => p.id === source);
+    if (!providers.length) {
+      show(root, message('The source set for this picker is not configured. '
+        + 'Check the `source` parameter of the library row path (see the README).'));
+      return;
+    }
+  }
   if (!providers.length) {
     show(root, message(NO_PROVIDER));
     return;
@@ -197,6 +211,7 @@ export async function mountPicker(root, sdkPromise, {
   workingMs = WORKING_MS,
   workerTimeoutMs = WORKER_TIMEOUT_MS,
   openWindow = (...args) => window.open(...args),
+  search = window.location.search,
 } = {}) {
   show(root, message('Waiting for Experience Workspace…'));
   let timer;
@@ -229,5 +244,6 @@ export async function mountPicker(root, sdkPromise, {
     workingMs,
     openWindow,
     workerOrigin: new URL(worker.base).origin,
+    source: pinnedSource(search),
   });
 }
